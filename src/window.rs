@@ -2409,6 +2409,7 @@ impl Window {
                         loop {
                             #[allow(unused)]
                             let mut is_state_changed = None;
+                            let mut restart_reason = None;
 
                             tokio::select! {
                                 Ok(_) = network_rx.changed() => {
@@ -2424,50 +2425,7 @@ impl Window {
 
                                     // When network transitions from offline to online
                                     if was_online_once && prev != v && !prev && v {
-                                        if let Some(ctk) = restart_ctk.take() {
-                                            ctk.cancel();
-                                        }
-
-                                        let ctk = CancellationToken::new();
-                                        restart_ctk = Some(ctk.clone());
-
-                                        glib::spawn_future_local(clone!(
-                                            #[weak]
-                                            this,
-                                            async move {
-                                                tokio::select! {
-                                                    _ = ctk.cancelled() => return,
-                                                    _ = glib::timeout_future_seconds(2) => {}
-                                                }
-
-                                                let mut deferred_once = false;
-                                                while !this.is_no_file_being_send()
-                                                    || !this.is_no_file_being_received().await
-                                                {
-                                                    if !deferred_once {
-                                                        tracing::info!(
-                                                            "Active transfer in progress; \
-                                                            deferring RQS restart until transfer completes"
-                                                        );
-                                                        deferred_once = true;
-                                                    }
-
-                                                    tokio::select! {
-                                                        _ = ctk.cancelled() => return,
-                                                        _ = glib::timeout_future_seconds(1) => {}
-                                                    }
-                                                }
-
-                                                tracing::info!(
-                                                    "Network reconnected; restarting RQS service"
-                                                );
-                                                _ = this.restart_rqs_service().await;
-
-                                                let was_discovery_on =
-                                                    this.imp().is_mdns_discovery_on.get();
-                                                this.start_mdns_discovery(Some(was_discovery_on));
-                                            }
-                                        ));
+                                        restart_reason = Some("Network reconnected");
                                     }
 
                                     if v {
@@ -2480,8 +2438,60 @@ impl Window {
 
                                     is_state_changed = (prev != v).then_some(ChangedState::Bluetooth);
                                     imp.bluetooth_state.set(v);
+
+                                    // The BLE receiver (GATT server + advertiser) can only be set up
+                                    // while the adapter is powered. If RQS (re)started while Bluetooth
+                                    // was off, it stays invisible over BLE until restarted.
+                                    if !prev && v {
+                                        restart_reason = Some("Bluetooth powered on");
+                                    }
                                 }
                             };
+
+                            if let Some(reason) = restart_reason {
+                                if let Some(ctk) = restart_ctk.take() {
+                                    ctk.cancel();
+                                }
+
+                                let ctk = CancellationToken::new();
+                                restart_ctk = Some(ctk.clone());
+
+                                glib::spawn_future_local(clone!(
+                                    #[weak]
+                                    this,
+                                    async move {
+                                        tokio::select! {
+                                            _ = ctk.cancelled() => return,
+                                            _ = glib::timeout_future_seconds(2) => {}
+                                        }
+
+                                        let mut deferred_once = false;
+                                        while !this.is_no_file_being_send()
+                                            || !this.is_no_file_being_received().await
+                                        {
+                                            if !deferred_once {
+                                                tracing::info!(
+                                                    "Active transfer in progress; \
+                                                    deferring RQS restart until transfer completes"
+                                                );
+                                                deferred_once = true;
+                                            }
+
+                                            tokio::select! {
+                                                _ = ctk.cancelled() => return,
+                                                _ = glib::timeout_future_seconds(1) => {}
+                                            }
+                                        }
+
+                                        tracing::info!("{reason}; restarting RQS service");
+                                        _ = this.restart_rqs_service().await;
+
+                                        let was_discovery_on =
+                                            this.imp().is_mdns_discovery_on.get();
+                                        this.start_mdns_discovery(Some(was_discovery_on));
+                                    }
+                                ));
+                            }
 
                             if let Some(changed_state) = is_state_changed {
                                 match changed_state {
