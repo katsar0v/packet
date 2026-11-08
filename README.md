@@ -7,7 +7,8 @@ A partial implementation of Google's Quick Share protocol that lets you send and
 > On its own hotspot the phone never looks for Quick Share devices over mDNS, so upstream Packet never shows up.
 > This fork additionally advertises Packet as a Quick Share receiver over Bluetooth LE: the phone finds and connects to it over BLE, then the transfer is upgraded to Wi-Fi over the hotspot, so file speed is unchanged.
 > The protocol work lives in [katsar0v/rquickshare@hotspot-ble](https://github.com/katsar0v/rquickshare/tree/hotspot-ble), based on Martin Alderson's [BLE receiver prototype](https://github.com/martinalderson/rquickshare/blob/feat/ble-receiver-connect-back/docs/BLE_RECEIVER_DISCOVERY.md).
-> Tested with an OPPO Find X9 Pro (Android 16) as the hotspot; the consent prompt appears within about a second of tapping the PC.
+> Tested with an OPPO Find X9 Pro (Android 16) as the hotspot; the consent prompt appears within about a second of tapping the PC. Also reported working with a Samsung Galaxy S22 Ultra (One UI 8).
+> Behind a firewall, turn on **Static Network Port** in Preferences and allow that port: the Wi-Fi upgrade uses it too.
 >
 > Build and install it next to the Flathub app (as `io.github.nozwock.Packet.Devel`); quit the regular Packet first so only one receiver runs:
 > ```sh
